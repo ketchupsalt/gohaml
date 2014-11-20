@@ -15,6 +15,7 @@ type hamlParser struct {
 
 func (self *hamlParser) parse(input string) (output *tree, err error) {
 	output = newTree()
+
 	var currentNode inode
 	var node inode
 	lastSpaceChar := '\000'
@@ -168,8 +169,181 @@ func parseAutoclose(input string, node *node, line int) (output inode) {
 }
 
 func parseAttributes(input string, node *node, line int) (output inode, err error) {
+	const (
+		t_end = iota
+		t_ident
+		t_string
+		t_ws
+		t_close
+		t_sym
+		t_comma
+		t_rocket
+		t_err
+	)
+
+	err = nil
+	pos := 0
+
+	errout := func(s string) {
+		err = fmt.Errorf("parse error line %d character %d, <<%s>>", line, pos, s)
+		panic(err)
+	}
+
+	lex := func() (int, string) {
+		idset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-."
+		start := pos
+
+		if pos < len(input) {
+			if strings.ContainsAny(string(input[pos]), " \t") {
+				pos += 1
+				for pos < len(input) && strings.ContainsAny(string(input[pos]), " \t") {
+					pos += 1
+				}
+
+				return t_ws, input[start:pos]
+			}
+
+			if input[pos] == '"' {
+				pos += 1
+				for pos < len(input) && input[pos] != '"'  { 
+					pos += 1
+				}
+				pos += 1
+
+				return t_string, input[start:pos]
+			}
+			
+			if strings.ContainsAny(string(input[pos]), idset) {
+				pos += 1
+				for pos < len(input) && strings.ContainsAny(string(input[pos]), idset) {
+					pos += 1
+				}
+
+				return t_ident, input[start:pos]
+			}
+
+			switch input[pos] {
+			case '}':
+				pos += 1
+				return t_close, "}"
+			case ':':
+				pos += 1
+				return t_sym, ":"
+			case ',':
+				pos += 1
+				return t_comma, ","
+			case '=':
+				pos += 1
+				if pos < len(input) && input[pos] == '>' {
+					pos += 1
+					return t_rocket, "=>"
+				}
+				fallthrough
+			default:
+				errout(string(input[pos]))
+				return t_err, input[start:pos]
+			}
+
+		} else {
+			return t_end, ""
+		}
+	}
+		
+	parseKey := func() string {
+		c, s := lex()
+		if c == t_ws {
+			// skip leading
+			c, s = lex()
+		}
+
+		if c != t_sym {
+			errout(s)
+			return ""
+		}
+
+		// i am dubious about the value of the lookup-key feature
+		c, s = lex()		
+		if c == t_string {
+			return fmt.Sprintf(":%s", s[1:len(s)-1])
+		} else if c == t_ident {
+			return fmt.Sprintf(":%s", s)
+		}
+		
+		errout(s)
+		return ""
+	}
+	
+	parseValue := func() string {
+		c, s := lex()
+		if c == t_ws {
+			// skip leading
+			c, s = lex()
+		}
+
+		if c == t_string {
+			return s
+		} else if c == t_ident {
+			return s
+		}
+		
+		errout(s)
+		return ""
+	}
+
+	parseAttr := func() (key, value string) {
+		k := parseKey()
+		if err != nil {
+			return
+		}
+
+		c, s := lex()
+		if c == t_ws {
+			c, s = lex()
+		}
+		if c == t_rocket {
+			value := parseValue()
+			return k, value
+		} else {
+			errout(s)
+			return
+		}
+	}
+
+	parseAttrs := func() {
+		for {
+   		key, value := parseAttr()
+   		if err != nil {
+   			return
+   		} else {
+				node.addAttr(key, value)
+			}
+
+   		c, s := lex()
+			if c == t_ws {
+				c, s = lex()
+			}
+			
+   		if c == t_comma {
+				continue
+			} else if c == t_close {
+				break
+			} else {
+				errout(s)
+				return
+			}
+		}
+	}
+
+	parseAttrs()
+
+	output, err = parseTag(input[pos:], node, false, line)
+	return
+}
+
+func oldBrokenParseAttributes(input string, node *node, line int) (output inode, err error) {
 	inKey := true
 	inRocket := false
+
 	keyEnd, attrStart := 0, 0
 	for i, r := range input {
 		if inKey && (r == '=' || unicode.IsSpace(r)) {
@@ -338,6 +512,7 @@ func (l *Lexer) init(reader *strings.Reader) {
 
 func (l *Lexer) Lex(v *yySymType) (output int) {
 	i := l.s.Scan()
+
 	switch i {
 	case scanner.Ident:
 		switch l.s.TokenText() {
