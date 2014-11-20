@@ -41,7 +41,9 @@ type icodenode interface {
 	nil() bool
 }
 
+// BUG(tqbf): what's with this _.* stuff?
 type node struct {
+	_filter      bool
 	_parent      inode
 	_remainder   res
 	_name        string
@@ -124,7 +126,27 @@ func (self tree) resolve(scope map[string]interface{}, indent string, autoclose 
 	return
 }
 
+func (self *node) resolveFilter(buf *bytes.Buffer) {
+	switch self._name {
+	case "javascript":
+		buf.WriteString("<script type='text/javascript'>\n")
+		buf.WriteString(self._remainder.value)
+		buf.WriteString("\n</script>\n")
+	case "style":
+		buf.WriteString("<style type='text/css'>\n")
+		buf.WriteString(self._remainder.value)
+		buf.WriteString("\n</style>\n")		
+	default:
+		panic(fmt.Sprintf("unknown filter type '%s' (shouldn't have made it here)", self._name))
+	}
+}
+
 func (self node) resolve(scope map[string]interface{}, buf *bytes.Buffer, curIndent string, indent string, autoclose bool) {
+	if self._filter {
+		self.resolveFilter(buf)
+		return
+	}
+
 	remainder := self._remainder.resolve(scope)
 	//if self._attrs.Len() > 0 && len(remainder) > 0 {
 	if len(self._attrs) > 0 && len(remainder) > 0 {
