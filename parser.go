@@ -13,9 +13,31 @@ import (
 type hamlParser struct {
 }
 
+type filter struct {
+	kind string
+	lines []string
+	level int
+	node *node
+}
+
+func (self *filter) finish() {
+	self.node._remainder.value = strings.Join(self.lines, "\n")
+	self.node = nil
+}
+
+func (self *filter) add(line string) {
+	self.lines = append(self.lines, line)
+}
+
+func (self *filter) finished() bool {
+	return self.node == nil
+}
+
 func (self *hamlParser) parse(input string) (output *tree, err error) {
 	output = newTree()
 
+	var currentFilter *filter = nil
+	
 	var currentNode inode
 	var node inode
 	lastSpaceChar := '\000'
@@ -24,9 +46,12 @@ func (self *hamlParser) parse(input string) (output *tree, err error) {
 	for i, r := range input {
 		if r == '\n' {
 			line += 1
-			node, err, lastSpaceChar = parseLeadingSpace(input[j:i], lastSpaceChar, line)
+			node, err, lastSpaceChar, currentFilter = parseLeadingSpace(input[j:i], lastSpaceChar, line, currentFilter)
 			if err != nil {
 				return
+			}
+			if currentFilter != nil && currentFilter.finished() {
+				currentFilter = nil
 			}
 			if node != nil && !node.nil() {
 				putNodeInPlace(currentNode, node, output)
@@ -35,12 +60,20 @@ func (self *hamlParser) parse(input string) (output *tree, err error) {
 			j = i + 1
 		}
 	}
-	node, err, lastSpaceChar = parseLeadingSpace(input[j:], lastSpaceChar, line)
+	node, err, lastSpaceChar, currentFilter = parseLeadingSpace(input[j:], lastSpaceChar, line, currentFilter)
 	if err != nil {
 		return
 	}
+	if currentFilter != nil && currentFilter.finished() {
+		currentFilter = nil
+	}
 	if node != nil && !node.nil() {
 		putNodeInPlace(currentNode, node, output)
+	}
+
+	if currentFilter != nil {
+		currentFilter.finish()
+		currentFilter = nil
 	}
 	return
 }
@@ -68,7 +101,25 @@ func putNodeInPlace(cn inode, node inode, t *tree) {
 
 var parser hamlParser
 
-func parseLeadingSpace(input string, lastSpaceChar rune, line int) (output inode, err error, spaceChar rune) {
+func parseLeadingSpace(input string, lastSpaceChar rune, line int, f *filter) (output inode, err error, spaceChar rune, fr *filter) {
+	if f != nil {
+		var i int
+		var r rune
+		for i, r = range input {
+			if !unicode.IsSpace(r) {
+				i = i - 1
+				break
+			}
+		}
+		
+		if i < f.node._indentLevel {
+			f.finish()
+		} else {
+			f.add(input[i:])
+			fr = f
+		}
+	}
+		
 	node := new(node)
 	for i, r := range input {
 		switch {
@@ -82,6 +133,8 @@ func parseLeadingSpace(input string, lastSpaceChar rune, line int) (output inode
 			output, err = parseClass(input[i+1:], node, line)
 		case r == '=':
 			output = parseKey(tl(input[i+1:]), node, line)
+		case r == ':':
+			output, fr, err = parseFilter(input[i+1:], node, line, f)
 		case r == '\\':
 			output = parseRemainder(input[i+1:], node, line)
 		case !unicode.IsSpace(r):
@@ -121,6 +174,36 @@ func parseKey(input string, n *node, line int) (output inode) {
 		output = n
 	}
 	output = n
+	return
+}
+
+func parseFilter(input string, node *node, line int, f *filter) (output inode, fr *filter, err error) {
+	if f != nil {
+		err = fmt.Errorf("nested filters disallowed at line %d", line)
+		return
+	}
+	
+	i := strings.IndexAny(input, " \t\n")
+	if i != -1 {
+		input = input[:i-1]
+	}
+	
+	kind := input
+	switch kind {
+	case "style": fallthrough
+	case "javascript":
+		fr = &filter {
+			node: node,
+			kind: kind,
+			lines: []string{},
+		}
+		
+		node._name = kind
+		node._filter = true
+		return 
+	}
+
+	err = fmt.Errorf("parse error in filter definition at line %d", line)
 	return
 }
 
