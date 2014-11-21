@@ -8,6 +8,38 @@ import (
 	"strings"
 )
 
+type Filter interface {
+	Render(*bytes.Buffer, *node)
+}
+
+type FilterFunc func(*bytes.Buffer, *node)
+
+func (f FilterFunc) Render(out *bytes.Buffer, n *node) {
+	f(out, n)
+}
+
+func filterJavascript(out *bytes.Buffer, n *node) {
+	out.WriteString("<script type='text/javascript'>\n")
+	out.WriteString(n._remainder.value)
+	out.WriteString("\n</script>\n")
+}
+
+func filterStyle(out *bytes.Buffer, n *node) {
+	out.WriteString("<style type='text/css'>\n")
+	out.WriteString(n._remainder.value)
+	out.WriteString("\n</style>\n")		
+}
+
+var filters map[string]Filter = map[string]Filter{
+	"javascript": FilterFunc(filterJavascript),
+	"css": FilterFunc(filterStyle),
+	"style": FilterFunc(filterStyle),
+}
+
+func AddFilter(name string, f Filter) {
+	filters[name] = f
+}
+
 type res struct {
 	value           string
 	needsResolution bool
@@ -127,18 +159,12 @@ func (self tree) resolve(scope map[string]interface{}, indent string, autoclose 
 }
 
 func (self *node) resolveFilter(buf *bytes.Buffer) {
-	switch self._name {
-	case "javascript":
-		buf.WriteString("<script type='text/javascript'>\n")
-		buf.WriteString(self._remainder.value)
-		buf.WriteString("\n</script>\n")
-	case "style":
-		buf.WriteString("<style type='text/css'>\n")
-		buf.WriteString(self._remainder.value)
-		buf.WriteString("\n</style>\n")		
-	default:
+	f, ok := filters[self._name]
+	if !ok {
 		panic(fmt.Sprintf("unknown filter type '%s' (shouldn't have made it here)", self._name))
 	}
+
+	f.Render(buf, self)
 }
 
 func (self node) resolve(scope map[string]interface{}, buf *bytes.Buffer, curIndent string, indent string, autoclose bool) {
