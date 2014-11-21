@@ -102,6 +102,7 @@ func putNodeInPlace(cn inode, node inode, t *tree) {
 var parser hamlParser
 
 func parseLeadingSpace(input string, lastSpaceChar rune, line int, f *filter) (output inode, err error, spaceChar rune, fr *filter) {
+	
 	if f != nil {
 		var i int
 		var r rune
@@ -189,21 +190,14 @@ func parseFilter(input string, node *node, line int, f *filter) (output inode, f
 	}
 	
 	kind := input
-	switch kind {
-	case "style": fallthrough
-	case "javascript":
-		fr = &filter {
-			node: node,
-			kind: kind,
-			lines: []string{},
-		}
-		
-		node._name = kind
-		node._filter = true
-		return 
+	fr = &filter {
+		node: node,
+		kind: kind,
+		lines: []string{},
 	}
-
-	err = fmt.Errorf("parse error in filter definition at line %d", line)
+		
+	node._name = kind
+	node._filter = true
 	return
 }
 
