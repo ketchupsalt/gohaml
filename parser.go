@@ -54,6 +54,8 @@ func (self *hamlParser) parse(input string) (output *tree, err error) {
 				currentFilter = nil
 			}
 			if node != nil && !node.nil() {
+				// BUG(tqbf): if you're currently in a raw HTML node, which I'm not sure gohaml knows how to handle,
+				// currentNode will be incorrect.
 				putNodeInPlace(currentNode, node, output)
 				currentNode = node
 			}
@@ -82,6 +84,7 @@ func putNodeInPlace(cn inode, node inode, t *tree) {
 	if node == nil || node.nil() {
 		return
 	}
+
 	if cn == nil || cn.nil() {
 		//t.nodes.Push(node)
 		t.nodes = append(t.nodes, node)
@@ -154,6 +157,7 @@ func parseLeadingSpace(input string, lastSpaceChar rune, line int, f *filter) (o
 				lastSpaceChar = r
 			}
 		}
+		
 		if nil != err {
 			break
 		}
@@ -198,6 +202,8 @@ func parseFilter(input string, node *node, line int, f *filter) (output inode, f
 		
 	node._name = kind
 	node._filter = true
+
+	output = node
 	return
 }
 
